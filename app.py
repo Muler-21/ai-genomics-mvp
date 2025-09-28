@@ -42,7 +42,7 @@ def ask_openai(prompt, model="gpt-4o-mini"):
             model=model,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.7,
-            max_tokens=2000,
+            max_tokens=3000,
         )
         return response["choices"][0]["message"]["content"].strip()
     except Exception as e:
@@ -74,30 +74,31 @@ Here’s how to use this app:
    - This ensures **you don’t pay anything as the app owner**.  
 
 2. 📄 In the **Paper Summarizer** tab:  
-   - Upload one or more **PDFs** (or paste text).  
+   - Upload up to **10 PDFs or Word docs** (or paste text).  
    - Choose the detail level (**Concise**, **Expanded**, or **Very Detailed – up to 30–50 pages**).  
-   - Click **Summarize**.  
-   - The app generates **100% humanized academic-style text** (summary, methodology, references).  
-   - You can **copy-paste into Word** or **download as a Word document**.  
+   - Click **Generate Coherent Report**.  
+   - The app produces **100% humanized academic-style text** (summary, methodology, discussion, references).  
+   - You can **copy-paste into Word** or **download as a .docx** file.  
 
 3. 🧬 In the **Genomic Data Interpreter** tab:  
    - Upload a **VCF**, **CSV**, or **Excel** dataset.  
    - Preview your data instantly.  
    - Click **Interpret Genomic Data** for AI-generated insights.  
-
-⚡ That’s it! Instant insights for research papers and genomics data — ready to use in your reports.
 """)
 
-tabs = st.tabs(["📄 Paper Summarizer", "🧬 Genomic Data Interpreter"])
+tabs = st.tabs(["📄 Multi-Paper Summarizer", "🧬 Genomic Data Interpreter"])
 
 # ---------------------------
-# Tab 1: Paper Summarizer
+# Tab 1: Multi-Paper Summarizer
 # ---------------------------
 with tabs[0]:
-    st.header("Research Paper / Abstract Summarizer")
+    st.header("Multi-Paper Summarizer & Coherent Report Builder")
 
-    uploaded_file = st.file_uploader("Upload PDF or TXT", type=["pdf", "txt"])
-    user_text = st.text_area("Or paste text here:")
+    uploaded_files = st.file_uploader(
+        "Upload up to 10 PDF or Word documents",
+        type=["pdf", "txt", "docx"],
+        accept_multiple_files=True
+    )
 
     detail_level = st.radio(
         "Detail level",
@@ -105,40 +106,52 @@ with tabs[0]:
         horizontal=True
     )
 
-    if st.button("Summarize"):
-        text = ""
-        if uploaded_file:
-            if uploaded_file.type == "application/pdf":
-                text = extract_text_from_pdf(uploaded_file)
-            else:
-                text = uploaded_file.read().decode("utf-8")
-        elif user_text.strip():
-            text = user_text.strip()
-
-        if not text:
-            st.error("❌ Please upload a file or paste some text.")
+    if st.button("Generate Coherent Report"):
+        if not uploaded_files:
+            st.error("❌ Please upload at least one file.")
         else:
-            prompt = f"""
-            You are an AI assistant. Read the following paper text and generate a {detail_level} research-style report.
-            Include:
-            - Structured summary
-            - Rewritten methodology
-            - Interpretation of figures/tables if present
-            - Proper academic-style references
+            all_texts = []
+            for file in uploaded_files[:10]:
+                if file.type == "application/pdf":
+                    all_texts.append(extract_text_from_pdf(file))
+                elif file.type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+                    import docx
+                    doc = docx.Document(file)
+                    text = "\n".join([para.text for para in doc.paragraphs])
+                    all_texts.append(text)
+                else:
+                    all_texts.append(file.read().decode("utf-8"))
 
-            Text:
-            {text}
+            combined_text = "\n\n".join(all_texts)
+
+            prompt = f"""
+            You are an academic writer. Read the following collection of research papers and
+            produce ONE SINGLE coherent long-form literature review.
+
+            Requirements:
+            - Write in natural, human-like academic style (never robotic).
+            - Structure with: Abstract, Introduction, Methods (rewritten), Results, Discussion, Conclusion.
+            - Ensure flow is coherent across papers, not just summaries.
+            - Highlight similarities/differences between studies.
+            - Add inline citations where appropriate.
+            - End with a formatted References section.
+            - Target length: {detail_level} (aim for 30–50 pages if 'Very Detailed').
+
+            Texts to synthesize:
+            {combined_text}
             """
+
             result = ask_openai(prompt)
-            st.success("✅ Generated Summary:")
+
+            st.success("✅ Generated Coherent Report:")
             st.write(result)
 
             # Offer Word download
-            docx_file = export_to_docx(result, "AI Generated Literature Review")
+            docx_file = export_to_docx(result, "AI Generated Coherent Report")
             st.download_button(
-                "⬇️ Download as Word Document",
+                "⬇️ Download Full Report (Word)",
                 data=docx_file,
-                file_name="AI_Genomics_Report.docx",
+                file_name="AI_Genomics_LitReview.docx",
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             )
 
