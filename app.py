@@ -2,6 +2,8 @@ import streamlit as st
 import fitz  # PyMuPDF for PDF text extraction
 import openai
 import os
+from io import BytesIO
+from docx import Document
 
 # ---------------------------
 # Page Config
@@ -63,7 +65,7 @@ with tab1:
         if st.button("Summarize All Papers"):
             with st.spinner("Generating summary..."):
                 try:
-                    response = openai.chat.completions.create(
+                    response = openai.ChatCompletion.create(
                         model="gpt-4o-mini",
                         messages=[
                             {"role": "system", "content": "You are an expert scientific writer. Summarize multiple research papers into one coherent literature review. Humanize the text, ensure clarity, and include citations when available."},
@@ -72,8 +74,26 @@ with tab1:
                         max_tokens=3000,
                         temperature=0.7
                     )
+
+                    summary_text = response.choices[0].message["content"]
                     st.success("✅ Summary generated successfully!")
-                    st.write(response.choices[0].message.content)
+                    st.write(summary_text)
+
+                    # ---- Download as Word ----
+                    doc = Document()
+                    doc.add_heading("AI-Generated Literature Review", 0)
+                    doc.add_paragraph(summary_text)
+
+                    buffer = BytesIO()
+                    doc.save(buffer)
+                    buffer.seek(0)
+
+                    st.download_button(
+                        label="📥 Download Review as Word",
+                        data=buffer,
+                        file_name="AI_Literature_Review.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    )
 
                 except Exception as e:
                     st.error(f"❌ Error: {str(e)}")
