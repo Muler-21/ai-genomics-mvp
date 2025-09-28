@@ -1,110 +1,86 @@
 import streamlit as st
-import fitz  # PyMuPDF for PDF text extraction
 import openai
 import os
-from io import BytesIO
-from docx import Document
+import tempfile
+from PyPDF2 import PdfReader
 
-# ---------------------------
-# Page Config
-# ---------------------------
-st.set_page_config(
-    page_title="AI Genomics & Literature Review",
-    page_icon="🧬",
-    layout="wide"
-)
+# ------------------------------
+# Sidebar: API Key Input
+# ------------------------------
+st.sidebar.header("🔑 OpenAI API Key")
+api_key = st.sidebar.text_input("Enter your OpenAI API key", type="password")
 
-# ---------------------------
-# Banner & Title
-# ---------------------------
-st.image("banner.png", use_column_width=True)
-st.title("🧬 AI Genomics & Literature Review")
-st.markdown("**Summarize. Rewrite. Interpret.** — Your AI-powered assistant for genomics and literature reviews.")
-
-# ---------------------------
-# API Key Handling
-# ---------------------------
-api_key = st.sidebar.text_input("🔑 Enter your OpenAI API Key", type="password")
-if not api_key:
+if api_key:
+    openai.api_key = api_key
+else:
     st.warning("⚠️ Please enter your OpenAI API key in the sidebar to continue.")
     st.stop()
 
-openai.api_key = api_key
+# ------------------------------
+# App Title + Banner
+# ------------------------------
+st.image("banner.png", use_column_width=True)
 
-# ---------------------------
-# Tabs
-# ---------------------------
-tab1, tab2 = st.tabs(["📄 Paper Summarizer", "🧬 Genomic Data Interpreter"])
+st.title("🧬 AI Genomics & Literature Review")
+st.markdown(
+    "### Summarize. Rewrite. Interpret.  \n"
+    "Upload research papers (PDF) or text, and get **humanized summaries and reviews** powered by AI."
+)
 
-# ---------------------------
-# 📄 Paper Summarizer
-# ---------------------------
-with tab1:
-    st.header("Research Paper / Abstract Summarizer")
+# ------------------------------
+# PDF Upload
+# ------------------------------
+uploaded_files = st.file_uploader(
+    "📄 Upload up to 10 research papers (PDF)",
+    type=["pdf"],
+    accept_multiple_files=True
+)
 
-    uploaded_files = st.file_uploader(
-        "Upload up to 10 PDF or TXT files",
-        type=["pdf", "txt"],
-        accept_multiple_files=True
-    )
+def extract_text_from_pdf(uploaded_file):
+    """Extracts text from a PDF file."""
+    pdf_reader = PdfReader(uploaded_file)
+    text = ""
+    for page in pdf_reader.pages:
+        text += page.extract_text() or ""
+    return text.strip()
 
-    if uploaded_files:
-        all_texts = []
-        for uploaded_file in uploaded_files:
-            if uploaded_file.type == "application/pdf":
-                pdf_doc = fitz.open(stream=uploaded_file.read(), filetype="pdf")
-                text = ""
-                for page in pdf_doc:
-                    text += page.get_text()
-                all_texts.append(text)
-            else:
-                all_texts.append(uploaded_file.read().decode("utf-8"))
+def summarize_text(text, api_key):
+    """Generates a summary using OpenAI chat completion."""
+    try:
+        client = openai.OpenAI(api_key=api_key)
 
-        combined_text = "\n".join(all_texts)
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are an academic writing assistant. Summarize text into clear, human-like prose with proper citations where applicable."},
+                {"role": "user", "content": text}
+            ],
+            temperature=0.7,
+            max_tokens=800
+        )
 
-        if st.button("Summarize All Papers"):
-            with st.spinner("Generating summary..."):
-                try:
-                    response = openai.ChatCompletion.create(
-                        model="gpt-4o-mini",
-                        messages=[
-                            {"role": "system", "content": "You are an expert scientific writer. Summarize multiple research papers into one coherent literature review. Humanize the text, ensure clarity, and include citations when available."},
-                            {"role": "user", "content": combined_text}
-                        ],
-                        max_tokens=3000,
-                        temperature=0.7
-                    )
+        return response.choices[0].message.content.strip()
 
-                    summary_text = response.choices[0].message["content"]
-                    st.success("✅ Summary generated successfully!")
-                    st.write(summary_text)
+    except Exception as e:
+        return f"⚠️ Error: {str(e)}"
 
-                    # ---- Download as Word ----
-                    doc = Document()
-                    doc.add_heading("AI-Generated Literature Review", 0)
-                    doc.add_paragraph(summary_text)
+# ------------------------------
+# Summarization
+# ------------------------------
+if uploaded_files:
+    if st.button("✨ Summarize All Papers"):
+        for file in uploaded_files:
+            with st.spinner(f"Processing {file.name}..."):
+                text = extract_text_from_pdf(file)
 
-                    buffer = BytesIO()
-                    doc.save(buffer)
-                    buffer.seek(0)
+                if not text:
+                    st.error(f"❌ Could not extract text from {file.name}")
+                    continue
 
-                    st.download_button(
-                        label="📥 Download Review as Word",
-                        data=buffer,
-                        file_name="AI_Literature_Review.docx",
-                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                    )
+                summary = summarize_text(text, api_key)
 
-                except Exception as e:
-                    st.error(f"❌ Error: {str(e)}")
-
-# ---------------------------
-# 🧬 Genomic Data Interpreter
-# ---------------------------
-with tab2:
-    st.header("Upload Genomic Dataset (VCF / CSV / Excel)")
-    file = st.file_uploader("Choose a file", type=["vcf", "csv", "xlsx"])
-
-    if file:
-        st.info("Genomic interpretation is in development. Future versions will provide AI-driven analysis of variants and expression data.")
+                st.subheader(f"📑 Summary for {file.name}")
+                st.write(summary)
+else:
+    st.info("📌 Upload 1–10 PDFs to begin summarizing.")
 
