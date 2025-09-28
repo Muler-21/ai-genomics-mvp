@@ -1,7 +1,26 @@
-openai==0.28.1
-streamlit>=1.31.0
-pymupdf>=1.23.0
-python-docx>=0.8.11
-biopython>=1.83
-pandas>=2.2.0
-python-dotenv>=1.0.1
+# Core app
+streamlit>=1.38.0
+
+# OpenAI API
+openai>=1.40.0
+
+# PDF handling
+PyPDF2>=3.0.1
+pdfplumber>=0.11.0
+
+# Document/Word support
+python-docx>=1.1.0
+
+# Data handling
+pandas>=2.2.2
+numpy>=1.26.4
+
+# File type support
+xlsxwriter>=3.2.0
+openpyxl>=3.1.5
+
+# Text processing
+tiktoken>=0.7.0
+
+# Optional but useful
+requests>=2.32.3
