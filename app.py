@@ -1,135 +1,184 @@
-
-import os
-import io
-import pandas as pd
 import streamlit as st
-
-# --- OpenAI (legacy v0.28+ style import) ---
+import pandas as pd
+import fitz  # PyMuPDF
+from io import BytesIO
 import openai
+from docx import Document
 
-# Read API key from env var (recommended)
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-if OPENAI_API_KEY:
-    openai.api_key = OPENAI_API_KEY
+# ---------------------------
+# Sidebar: API key input
+# ---------------------------
+def set_openai_key_from_sidebar():
+    st.sidebar.subheader("🔑 OpenAI API Key")
+    api_key = st.sidebar.text_input(
+        "Enter your OpenAI API key",
+        type="password",
+        help="Get a free key from https://platform.openai.com/"
+    )
+    if api_key:
+        openai.api_key = api_key
+        return api_key
+    return None
 
-st.set_page_config(page_title="AI Genomics MVP", layout="wide")
-st.title("🧬 AI Genomics MVP")
-st.caption("Upload simple genomics data or paste a paper to get an AI-generated interpretation.")
+api_key = set_openai_key_from_sidebar()
+if not api_key:
+    st.warning("⚠️ Please enter your OpenAI API key in the sidebar to continue.")
+    st.info("👉 You can get a free key from OpenAI and paste it here. That way, **you pay nothing** as the app owner.")
+    st.stop()
 
-# Helper: safe OpenAI chat call
-def ai_chat(prompt, system="You are a helpful bioinformatics assistant."):
-    if not OPENAI_API_KEY:
-        return "⚠️ OPENAI_API_KEY is not set. Please export it in your shell before running Streamlit."
+# ---------------------------
+# Helpers
+# ---------------------------
+def extract_text_from_pdf(file):
+    text = ""
+    doc = fitz.open(stream=file.read(), filetype="pdf")
+    for page in doc:
+        text += page.get_text("text")
+    return text
+
+def ask_openai(prompt, model="gpt-4o-mini"):
     try:
-        resp = openai.ChatCompletion.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role":"system","content":system},
-                {"role":"user","content":prompt}
-            ],
-            max_tokens=700,
-            temperature=0.2,
+        response = openai.ChatCompletion.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7,
+            max_tokens=2000,
         )
-        return resp["choices"][0]["message"]["content"]
+        return response["choices"][0]["message"]["content"].strip()
     except Exception as e:
-        return f"❌ OpenAI error: {e}"
+        return f"❌ Error: {e}"
 
-tab1, tab2 = st.tabs(["📄 Paper Summarizer", "🧬 Genomic Data Interpreter"])
+def export_to_docx(text, title="AI Generated Report"):
+    doc = Document()
+    doc.add_heading(title, 0)
+    doc.add_paragraph(text)
+    bio = BytesIO()
+    doc.save(bio)
+    bio.seek(0)
+    return bio
 
-with tab1:
-    st.subheader("📄 Research Paper / Abstract Summarizer")
-    txt = st.text_area("Paste an abstract or paper text:", height=250, placeholder="Paste text here...")
-    if st.button("Summarize", key="summarize_btn"):
-        if txt.strip():
-            with st.spinner("Summarizing..."):
-                prompt = f"Summarize the following research text in sections: Objectives, Methods, Results, Conclusions. Keep it concise and structured.\n\n{txt}"
-                out = ai_chat(prompt, system="You summarize scientific papers in a structured, precise style.")
-            st.markdown("### 🧾 Summary")
-            st.write(out)
-        else:
-            st.warning("Please paste some text first.")
+# ---------------------------
+# Streamlit App
+# ---------------------------
+st.set_page_config(page_title="AI Genomics Assistant", layout="wide")
+st.title("🧬 AI Genomics & Literature Review Assistant")
 
-with tab2:
-    st.subheader("🧬 Upload Genomic Dataset (VCF / CSV / Excel)")
-    f = st.file_uploader("Choose a file", type=["vcf","csv","xlsx"])
+# Welcome message
+st.info("""
+👋 **Welcome to the AI Genomics & Literature Review Assistant!**
 
-    def parse_vcf(file_bytes):
-        text = file_bytes.decode("utf-8", errors="ignore")
-        lines = [ln for ln in text.splitlines() if ln.strip()]
-        header_cols = []
-        data_rows = []
-        for ln in lines:
-            if ln.startswith("#CHROM"):
-                header_cols = ln.lstrip("#").split("\t")
-            elif ln.startswith("#"):
-                continue
+Here’s how to use this app:
+
+1. 👉 Open the **sidebar on the left** (click the `>` if hidden) and enter your **OpenAI API key**.  
+   - Get one free at [platform.openai.com](https://platform.openai.com/).  
+   - This ensures **you don’t pay anything as the app owner**.  
+
+2. 📄 In the **Paper Summarizer** tab:  
+   - Upload one or more **PDFs** (or paste text).  
+   - Choose the detail level (**Concise**, **Expanded**, or **Very Detailed – up to 30–50 pages**).  
+   - Click **Summarize**.  
+   - The app generates **100% humanized academic-style text** (summary, methodology, references).  
+   - You can **copy-paste into Word** or **download as a Word document**.  
+
+3. 🧬 In the **Genomic Data Interpreter** tab:  
+   - Upload a **VCF**, **CSV**, or **Excel** dataset.  
+   - Preview your data instantly.  
+   - Click **Interpret Genomic Data** for AI-generated insights.  
+
+⚡ That’s it! Instant insights for research papers and genomics data — ready to use in your reports.
+""")
+
+tabs = st.tabs(["📄 Paper Summarizer", "🧬 Genomic Data Interpreter"])
+
+# ---------------------------
+# Tab 1: Paper Summarizer
+# ---------------------------
+with tabs[0]:
+    st.header("Research Paper / Abstract Summarizer")
+
+    uploaded_file = st.file_uploader("Upload PDF or TXT", type=["pdf", "txt"])
+    user_text = st.text_area("Or paste text here:")
+
+    detail_level = st.radio(
+        "Detail level",
+        ["Concise", "Expanded", "Very Detailed (30–50 pages)"],
+        horizontal=True
+    )
+
+    if st.button("Summarize"):
+        text = ""
+        if uploaded_file:
+            if uploaded_file.type == "application/pdf":
+                text = extract_text_from_pdf(uploaded_file)
             else:
-                parts = ln.split("\t")
-                if header_cols and len(parts) >= len(header_cols):
-                    data_rows.append(parts[:len(header_cols)])
-        if header_cols and data_rows:
-            import pandas as pd
-            df = pd.DataFrame(data_rows, columns=header_cols)
-            return df
-        else:
-            # fallback minimal columns for preview
-            df = pd.DataFrame({"raw_line":[ln for ln in lines if not ln.startswith("#")]})
-            return df
+                text = uploaded_file.read().decode("utf-8")
+        elif user_text.strip():
+            text = user_text.strip()
 
-    if f is not None:
-        ext = f.name.split(".")[-1].lower()
+        if not text:
+            st.error("❌ Please upload a file or paste some text.")
+        else:
+            prompt = f"""
+            You are an AI assistant. Read the following paper text and generate a {detail_level} research-style report.
+            Include:
+            - Structured summary
+            - Rewritten methodology
+            - Interpretation of figures/tables if present
+            - Proper academic-style references
+
+            Text:
+            {text}
+            """
+            result = ask_openai(prompt)
+            st.success("✅ Generated Summary:")
+            st.write(result)
+
+            # Offer Word download
+            docx_file = export_to_docx(result, "AI Generated Literature Review")
+            st.download_button(
+                "⬇️ Download as Word Document",
+                data=docx_file,
+                file_name="AI_Genomics_Report.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+
+# ---------------------------
+# Tab 2: Genomic Data Interpreter
+# ---------------------------
+with tabs[1]:
+    st.header("Upload Genomic Dataset (VCF / CSV / Excel)")
+    gfile = st.file_uploader("Choose a file", type=["vcf","csv","xlsx"])
+
+    if gfile is not None:
         df = None
-        try:
-            if ext == "csv":
-                df = pd.read_csv(f)
-            elif ext == "xlsx":
-                df = pd.read_excel(f)
-            elif ext == "vcf":
-                file_bytes = f.read()
-                df = parse_vcf(file_bytes)
-        except Exception as e:
-            st.error(f"Failed to read file: {e}")
+        if gfile.name.endswith(".csv"):
+            df = pd.read_csv(gfile)
+        elif gfile.name.endswith(".xlsx"):
+            df = pd.read_excel(gfile)
+        elif gfile.name.endswith(".vcf"):
+            content = gfile.read().decode("utf-8")
+            rows = [line.split("\t") for line in content.splitlines() if not line.startswith("##")]
+            df = pd.DataFrame(rows[1:], columns=rows[0])
+        else:
+            st.error("Unsupported file format")
+            df = None
 
         if df is not None:
-            st.markdown("#### 📊 Preview (first 20 rows)")
-            st.dataframe(df.head(20), use_container_width=True)
+            st.write("📊 Preview of uploaded dataset:")
+            st.dataframe(df.head())
 
-            # Lightweight feature extraction for prompt
-            col_names = list(df.columns)
-            head_csv = df.head(30).to_csv(index=False)
+            if st.button("Interpret Genomic Data"):
+                prompt = f"""
+                You are a genomics assistant. Interpret this dataset (first 20 rows shown):
 
-            # Try to extract obvious gene, chrom, pos columns if present
-            candidate_cols = [c for c in col_names if c.lower() in ["gene","genes","symbol","gene_symbol","chrom","chromosome","pos","position","ref","alt"]]
-            detected_cols = candidate_cols[:6]
+                {df.head(20).to_csv(index=False)}
 
-            st.markdown("#### ⚙️ Detected columns (heuristic)")
-            if detected_cols:
-                st.write(", ".join(detected_cols))
-            else:
-                st.write("None detected (will use the table head as context).")
+                Provide:
+                - Summary of key findings
+                - Possible biological/clinical interpretations
+                - Limitations and cautions
+                """
+                result = ask_openai(prompt)
+                st.success("✅ Genomic Interpretation:")
+                st.write(result)
 
-            if st.button("Interpret Dataset with AI", key="interpret_btn"):
-                with st.spinner("Interpreting..."):
-                    prompt = f"""You are a genomic scientist. Based on the following tabular sample (CSV) from a genomic dataset, provide:
-- What the dataset likely represents
-- Key features/columns of interest
-- Notable variants/genes if any are visible
-- Potential biological/clinical significance (high-level, not medical advice)
-- Recommended next analysis steps (e.g., variant annotation, filtering, visualization, QC)
-
-Table sample (first rows):
-{head_csv}
-
-If relevant, organize the answer with bullet points and short paragraphs.
-"""
-                    out = ai_chat(prompt, system="You are a precise, safety-aware bioinformatics expert. You never provide medical advice; you only suggest research-oriented next steps.")
-                st.markdown("### 🧾 AI Interpretation")
-                st.write(out)
-
-        else:
-            st.info("Upload a valid VCF, CSV, or XLSX file to preview and interpret.")
-    else:
-        st.caption("Supports VCF for variants and CSV/XLSX for tabular results (e.g., annotations, counts).")
-
-st.markdown("---")
-st.caption("Tip: Set your OPENAI_API_KEY env var before running. This is a minimal MVP for experimentation, not a clinical tool.")
