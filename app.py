@@ -19,7 +19,7 @@ else:
 # ------------------------------
 # App Title + Banner
 # ------------------------------
-st.image("banner.png", use_column_width=True)
+st.image("banner.png", use_container_width=True)
 
 st.title("🧬 AI Genomics & Literature Review")
 st.markdown(
